@@ -1,0 +1,11 @@
+from django.urls import path
+
+from ..views import {{ model_name_slug }}_view
+
+urlpatterns = [
+    # todo: можно сделать лучше через регулярные выражения
+    # всё в 1 вызове с проверкой на валидность параметров
+    # https://docs.djangoproject.com/en/2.2/topics/http/urls/
+    path('{{ model_name_slug }}', {{ model_name_slug }}_view.{{ model_name_slug }}),
+    path('{{ model_name_slug }}/<int:{{ model_name_slug }}_id>', {{ model_name_slug }}_view.{{ model_name_slug }}),
+]
