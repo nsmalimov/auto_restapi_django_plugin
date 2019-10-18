@@ -2,21 +2,19 @@ from __future__ import print_function
 
 import os
 import re
-import itertools
 
 from django.db.models.fields import SlugField
 from django.template.loader import get_template
-from django.template import Context
 from django.utils.six import iteritems
 
 
-class Baker(object):
+class AutoRESTApiGenerator(object):
     """
         Given a dictionary of apps and models, Baker will bake up a bunch of files that will help get your new app up
         and running quickly.
     """
 
-    def bake(self, apps_and_models):
+    def processing(self, apps_and_models):
         """
             Iterates a dictionary of apps and models and creates all the necessary files to get up and running quickly.
         """
@@ -26,11 +24,6 @@ class Baker(object):
             model_names = {model.__name__: self.get_field_names_for_model(model) for model in models}
             self.create_directories(app)
             self.create_init_files(app, model_names.keys(), models)
-            self.remove_empty_startapp_files(app)
-            for file_name in ["forms", "admin"]:
-                file_path = "%s/%s.py" % (app.path, file_name)
-                template_path = "django_baker/%s" % (file_name)
-                self.create_file_from_template(file_path, template_path, {"model_names": model_names})
             for model in models:
                 model_attributes = self.model_attributes(app, model)
                 self.create_files_from_templates(model_attributes)
@@ -40,16 +33,16 @@ class Baker(object):
             Returns fields other than id and uneditable fields (DateTimeField where auto_now or auto_now_add is True)
         """
         return [field.name for field in model._meta.get_fields() if field.name != "id" and not
-                (field.get_internal_type() == "DateTimeField" and
-                 (field.auto_now is True or field.auto_now_add is True)) and
+        (field.get_internal_type() == "DateTimeField" and
+         (field.auto_now is True or field.auto_now_add is True)) and
                 field.concrete and (not field.is_relation or field.one_to_one or
                                     (field.many_to_one and field.related_model))]
 
     def create_directories(self, app):
         """
-            If not already there, adds a directory for views, urls and templates.
+            If not already there, adds a directory for views and urls.
         """
-        for folder_name in ["views", "urls", "templates/%s" % app.label]:
+        for folder_name in ["views", "urls"]:
             directory_path = "%s/%s" % (app.path, folder_name)
             if not os.path.exists(directory_path):
                 os.makedirs(directory_path)
@@ -59,12 +52,12 @@ class Baker(object):
             If not already there, creates a new init file in views and urls directory.  Init file imports from all
             of the files within the directory.
         """
-        model_name_slugs = ["%s_views" % (self.camel_to_slug(model_name)) for model_name in model_names]
+        model_name_slugs = ["%s" % (self.camel_to_slug(model_name)) for model_name in model_names]
         model_names_dict = {self.camel_to_slug(model.__name__): self.camel_to_slug(self.model_name_plural(model)) for
                             model in models}
         for folder_name in ["views", "urls"]:
             file_path = "%s/%s/__init__.py" % (app.path, folder_name)
-            template_path = "django_baker/__init__%s" % folder_name
+            template_path = "__init__%s" % folder_name
             self.create_file_from_template(file_path, template_path, {"app_label": app.label,
                                                                       "model_name_slugs": model_name_slugs,
                                                                       "model_names_dict": model_names_dict
@@ -76,9 +69,6 @@ class Baker(object):
         """
         model_name = model.__name__
         model_name_plural = self.model_name_plural(model)
-        slug_field = self.get_unique_slug_field_name(model)
-        slug_field_name = slug_field.name if slug_field else "slug"
-        lookup_field = slug_field_name if slug_field else "pk"
         return {
             'app_label': app.label,
             'app_path': app.path,
@@ -87,10 +77,6 @@ class Baker(object):
             'model_name_slug': self.camel_to_slug(model_name),
             'model_name_plural': model_name_plural,
             'model_name_plural_slug': self.camel_to_slug(model_name_plural),
-            'model_fields': self.get_field_names_for_model(model),
-            'slug_field': slug_field,
-            'slug_field_name': slug_field_name,
-            'lookup_field': lookup_field
         }
 
     def create_files_from_templates(self, model_attributes):
@@ -98,14 +84,14 @@ class Baker(object):
             Determines the correct path to put each file and then calls create file method.
         """
         for folder_name in ["views", "urls"]:
-            file_path = "%s/%s/%s_%s.py" % (model_attributes['app_path'], folder_name,
-                                            model_attributes['model_name_slug'], folder_name)
-            template_path = "django_baker/%s" % (folder_name)
-            self.create_file_from_template(file_path, template_path, model_attributes)
-        for file_name in ["base", "list", "detail", "create", "update", "delete"]:
-            file_path = "%s/templates/%s/%s_%s.html" % (model_attributes['app_path'], model_attributes['app_label'],
-                                                        model_attributes['model_name_slug'], file_name)
-            template_path = "django_baker/%s.html" % (file_name)
+            end_filename = folder_name
+            if folder_name == "views":
+                end_filename = folder_name[:-1]
+            file_path = "%s/%s/%s_%s.py" % (model_attributes['app_path'],
+                                            folder_name,
+                                            model_attributes['model_name_slug'],
+                                            end_filename)
+            template_path = "%s" % (folder_name)
             self.create_file_from_template(file_path, template_path, model_attributes)
 
     def create_file_from_template(self, file_path, template_path, context_variables):
@@ -116,21 +102,8 @@ class Baker(object):
             print("\033[91m" + file_path + " already exists.  Skipping." + "\033[0m")
             return
         with open(file_path, 'w') as new_file:
-
             new_file.write(get_template(template_path).render(context_variables))
-            print("\033[92m" + "successfully baked " + file_path + "\033[0m")
-
-    def remove_empty_startapp_files(self, app):
-        """
-            Removes 'empty' (less than or equal to 4 lines, as that is what they begin with) views, admin, and tests
-            files.
-        """
-        for file_name in ["views", "admin", "tests"]:
-            file_path = "%s/%s.py" % (app.path, file_name)
-            if os.path.exists(file_path):
-                num_lines = sum(1 for line in open(file_path))
-                if num_lines <= 4:
-                    os.remove(file_path)
+            print("\033[92m" + "successfully create: " + file_path + "\033[0m")
 
     def camel_to_slug(self, name):
         """
@@ -147,7 +120,11 @@ class Baker(object):
         """
         if isinstance(model._meta.verbose_name_plural, str):
             return model._meta.verbose_name_plural
-        return "%ss" % model.__name__
+        res_s = "%ss" % model.__name__
+        if 'ys' == res_s[-2:]:
+            res_s = res_s[:-2] + 'ies'
+
+        return res_s
 
     def get_unique_slug_field_name(self, model):
         """
