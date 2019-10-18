@@ -53,6 +53,7 @@ class AutoRESTApiGenerator(object):
         """
         model_name = model.__name__
         return {
+            'app_path': app.path,
             'app_label': app.label,
             'model_name': model_name,
             'model_name_slug': self.camel_to_slug(model_name),
