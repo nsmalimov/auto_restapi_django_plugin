@@ -3,17 +3,11 @@ from __future__ import print_function
 import os
 import re
 
-from django.db.models.fields import SlugField
 from django.template.loader import get_template
 from django.utils.six import iteritems
 
 
 class AutoRESTApiGenerator(object):
-    """
-        Given a dictionary of apps and models, Baker will bake up a bunch of files that will help get your new app up
-        and running quickly.
-    """
-
     def processing(self, apps_and_models):
         """
             Iterates a dictionary of apps and models and creates all the necessary files to get up and running quickly.
@@ -21,22 +15,12 @@ class AutoRESTApiGenerator(object):
         for app_label, models_app in iteritems(apps_and_models):
             models, app = models_app
             models = list(models)
-            model_names = {model.__name__: self.get_field_names_for_model(model) for model in models}
+            model_names = [model.__name__ for model in models]
             self.create_directories(app)
-            self.create_init_files(app, model_names.keys(), models)
+            self.create_init_files(app, model_names, models)
             for model in models:
                 model_attributes = self.model_attributes(app, model)
                 self.create_files_from_templates(model_attributes)
-
-    def get_field_names_for_model(self, model):
-        """
-            Returns fields other than id and uneditable fields (DateTimeField where auto_now or auto_now_add is True)
-        """
-        return [field.name for field in model._meta.get_fields() if field.name != "id" and not
-        (field.get_internal_type() == "DateTimeField" and
-         (field.auto_now is True or field.auto_now_add is True)) and
-                field.concrete and (not field.is_relation or field.one_to_one or
-                                    (field.many_to_one and field.related_model))]
 
     def create_directories(self, app):
         """
@@ -68,15 +52,10 @@ class AutoRESTApiGenerator(object):
             Creates a dictionary of model attributes that will be used in the templates.
         """
         model_name = model.__name__
-        model_name_plural = self.model_name_plural(model)
         return {
             'app_label': app.label,
-            'app_path': app.path,
-            'model': model,
             'model_name': model_name,
             'model_name_slug': self.camel_to_slug(model_name),
-            'model_name_plural': model_name_plural,
-            'model_name_plural_slug': self.camel_to_slug(model_name_plural),
         }
 
     def create_files_from_templates(self, model_attributes):
@@ -125,15 +104,3 @@ class AutoRESTApiGenerator(object):
             res_s = res_s[:-2] + 'ies'
 
         return res_s
-
-    def get_unique_slug_field_name(self, model):
-        """
-            Determines if model has exactly 1 SlugField that is unique.  If so, returns it.  Otherwise returns None.
-        """
-        slug_fields = []
-        for field in model._meta.get_fields():
-            if isinstance(field, SlugField) and field.unique:
-                slug_fields.append(field)
-        if len(slug_fields) == 1:
-            return slug_fields[0]
-        return None
